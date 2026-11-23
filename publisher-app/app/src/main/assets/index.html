@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="uk"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gidra Publisher</title>
+<style>
+body{font-family:sans-serif;margin:0;background:#f4f1fa;color:#222}
+header{background:#2b2d6e;color:#fff;padding:14px 16px;font-size:18px;font-weight:bold}
+main{padding:12px}
+.card{background:#fff;border-radius:12px;padding:12px;margin-bottom:12px;box-shadow:0 1px 3px #0002}
+button{background:#2b2d6e;color:#fff;border:0;border-radius:8px;padding:12px 14px;font-size:16px;width:100%;margin-top:8px}
+button.sec{background:#e5e2f3;color:#2b2d6e}
+input[type=text],input[type=password]{width:100%;box-sizing:border-box;padding:10px;margin:4px 0 8px;border:1px solid #bbb;border-radius:6px;font-size:15px}
+label{font-size:14px}.nets label{margin-right:12px}
+pre{white-space:pre-wrap;font-size:12px;background:#111;color:#9f9;padding:8px;border-radius:8px;max-height:260px;overflow:auto}
+small{color:#666}
+</style></head><body>
+<header>Gidra Publisher</header>
+<main>
+<div class="card" id="cfg">
+<b>Налаштування Metricool</b><br><small>Потрібен тариф з API (Advanced/Custom). Дані зберігаються тільки на цьому телефоні.</small>
+<input type="password" id="token" placeholder="API-токен (X-Mc-Auth)">
+<input type="text" id="userId" placeholder="userId">
+<input type="text" id="blogId" placeholder="blogId (бренд з TikTok, YouTube, Instagram)">
+<input type="text" id="tz" placeholder="Часовий пояс (Europe/Kiev)">
+<input type="text" id="repo" placeholder="База відео (raw GitHub)">
+<button class="sec" onclick="saveCfg()">Зберегти</button>
+</div>
+<div class="card">
+<b>Відео для публікації</b>
+<div id="list"><small>Завантаження…</small></div>
+<button class="sec" onclick="loadList()">Оновити список</button>
+</div>
+<div class="card" id="pub" style="display:none">
+<b id="ptitle"></b>
+<div class="nets" id="nets"></div>
+<label><input type="checkbox" id="draft"> тільки чернетка (нічого не публікувати)</label>
+<button onclick="publish()">Опублікувати зараз</button>
+</div>
+<div class="card"><b>Журнал</b><pre id="log">—</pre></div>
+</main>
+<script>
+const DEF={tz:"Europe/Kiev",repo:"https://raw.githubusercontent.com/oleksandrrudyk33-cyber/gidra-videos/main/videos/"};
+const $=id=>document.getElementById(id);
+let items=[],cur=null,cbs={};
+function ls(k,v){try{if(v===undefined)return localStorage.getItem(k)||"";localStorage.setItem(k,v)}catch(e){return ""}}
+function log(s){$("log").textContent+="\n"+s;$("log").scrollTop=1e9}
+window.__cb=(id,json)=>{const f=cbs[id];delete cbs[id];if(f)f(JSON.parse(json))};
+function http(method,url,headers,body){return new Promise(res=>{const id=Math.random().toString(36).slice(2);cbs[id]=res;Native.http(id,method,url,JSON.stringify(headers||{}),body||"")})}
+function loadCfg(){["token","userId","blogId"].forEach(k=>$(k).value=ls(k));$("tz").value=ls("tz")||DEF.tz;$("repo").value=ls("repo")||DEF.repo}
+function saveCfg(){["token","userId","blogId","tz","repo"].forEach(k=>ls(k,$(k).value.trim()));log("Налаштування збережено")}
+async function loadList(){
+  $("list").innerHTML="<small>Завантаження…</small>";
+  const r=await http("GET",($("repo").value.trim()||DEF.repo)+"index.json?t="+Date.now());
+  if(r.status!==200){$("list").innerHTML="<small>Не вдалось отримати index.json ("+r.status+")</small>";return}
+  items=JSON.parse(r.body);$("list").innerHTML="";
+  items.forEach((it,i)=>{const b=document.createElement("button");b.className="sec";b.textContent=it.title;b.onclick=()=>pick(i);$("list").appendChild(b)});
+}
+function pick(i){cur=items[i];$("pub").style.display="block";$("ptitle").textContent=cur.title;
+  $("nets").innerHTML=Object.keys(cur.networks).map(n=>'<label><input type="checkbox" class="net" value="'+n+'" checked> '+n+'</label>').join("");}
+function nowIn(tz,addMin){const d=new Date(Date.now()+addMin*60000);
+  return d.toLocaleString("sv-SE",{timeZone:tz}).replace(" ","T")}
+function bodyFor(net,spec,url,tz,draft){
+  const b={publicationDate:{dateTime:nowIn(tz,3),timezone:tz},text:spec.text,providers:[{network:net}],
+    autoPublish:true,draft:draft,media:[url],saveExternalMediaFiles:true,firstCommentText:""};
+  if(net==="tiktok")b.tiktokData={privacyOption:"PUBLIC_TO_EVERYONE",isAigc:true,title:spec.title||"",disableComment:false};
+  if(net==="youtube")b.youtubeData={title:spec.title,type:"short",privacy:"public",tags:spec.tags||[],category:spec.category||"EDUCATION",madeForKids:false,isAiGeneratedContent:true};
+  if(net==="instagram")b.instagramData={type:"REEL",showReelOnFeed:true,isAiGenerated:true,autoPublish:true};
+  return b}
+async function publish(){
+  const token=ls("token"),uid=ls("userId"),blog=ls("blogId"),tz=ls("tz")||DEF.tz,base=ls("repo")||DEF.repo;
+  if(!token||!uid||!blog){log("Заповни токен, userId і blogId");return}
+  const nets=[...document.querySelectorAll(".net:checked")].map(x=>x.value);
+  const draft=$("draft").checked, url=base+cur.file;
+  for(const n of nets){
+    log("→ "+n+" …");
+    const r=await http("POST","https://app.metricool.com/api/v2/scheduler/posts?blogId="+encodeURIComponent(blog)+"&userId="+encodeURIComponent(uid),
+      {"X-Mc-Auth":token,"Content-Type":"application/json"},JSON.stringify(bodyFor(n,cur.networks[n],url,tz,draft)));
+    log(n+": HTTP "+r.status+" "+r.body.slice(0,300));
+  }
+  log("Готово. Перевір статус у Metricool (Планувальник).");
+}
+loadCfg();loadList();
+</script></body></html>
