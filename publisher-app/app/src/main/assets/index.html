@@ -16,7 +16,16 @@ small{color:#666}
 </style></head><body>
 <header>Gidra Publisher</header>
 <main>
-<div class="card" id="cfg">
+<div class="card" id="pub" style="display:none">
+<b id="ptitle"></b>
+<button onclick="dl()">1. Завантажити відео на телефон</button>
+<button onclick="go('com.zhiliaoapp.musically','tiktok')">2. TikTok</button>
+<button onclick="go('com.google.android.youtube','youtube')">3. YouTube Shorts</button>
+<button onclick="go('com.instagram.android','instagram')">4. Instagram Reels</button>
+<small>Опис копіюється в буфер: у застосунку натисни поле опису → «Вставити», потім «Опублікувати». Для TikTok постав позначку «створено ШІ».</small>
+</div>
+<details class="card"><summary><b>Розширено: публікація через Metricool API</b></summary>
+<div id="cfg">
 <b>Налаштування Metricool</b><br><small>Потрібен тариф з API (Advanced/Custom). Дані зберігаються тільки на цьому телефоні.</small>
 <input type="password" id="token" placeholder="API-токен (X-Mc-Auth)">
 <input type="text" id="userId" placeholder="userId">
@@ -24,14 +33,14 @@ small{color:#666}
 <input type="text" id="tz" placeholder="Часовий пояс (Europe/Kiev)">
 <input type="text" id="repo" placeholder="База відео (raw GitHub)">
 <button class="sec" onclick="saveCfg()">Зберегти</button>
-</div>
+</div></details>
 <div class="card">
 <b>Відео для публікації</b>
 <div id="list"><small>Завантаження…</small></div>
 <button class="sec" onclick="loadList()">Оновити список</button>
 </div>
-<div class="card" id="pub" style="display:none">
-<b id="ptitle"></b>
+<div class="card" id="pubapi" style="display:none">
+<b id="ptitle2"></b>
 <div class="nets" id="nets"></div>
 <label><input type="checkbox" id="draft"> тільки чернетка (нічого не публікувати)</label>
 <button onclick="publish()">Опублікувати зараз</button>
@@ -41,7 +50,7 @@ small{color:#666}
 <script>
 const DEF={tz:"Europe/Kiev",repo:"https://raw.githubusercontent.com/oleksandrrudyk33-cyber/gidra-videos/main/videos/"};
 const $=id=>document.getElementById(id);
-let items=[],cur=null,cbs={};
+let items=[],cur=null,cbs={},uriCur=null;
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k)||"";localStorage.setItem(k,v)}catch(e){return ""}}
 function log(s){$("log").textContent+="\n"+s;$("log").scrollTop=1e9}
 window.__cb=(id,json)=>{const f=cbs[id];delete cbs[id];if(f)f(JSON.parse(json))};
@@ -55,7 +64,7 @@ async function loadList(){
   items=JSON.parse(r.body);$("list").innerHTML="";
   items.forEach((it,i)=>{const b=document.createElement("button");b.className="sec";b.textContent=it.title;b.onclick=()=>pick(i);$("list").appendChild(b)});
 }
-function pick(i){cur=items[i];$("pub").style.display="block";$("ptitle").textContent=cur.title;
+function pick(i){cur=items[i];uriCur=null;$("pub").style.display="block";$("pubapi").style.display="block";$("ptitle").textContent=cur.title;$("ptitle2").textContent="Через API: "+cur.title;
   $("nets").innerHTML=Object.keys(cur.networks).map(n=>'<label><input type="checkbox" class="net" value="'+n+'" checked> '+n+'</label>').join("");}
 function nowIn(tz,addMin){const d=new Date(Date.now()+addMin*60000);
   return d.toLocaleString("sv-SE",{timeZone:tz}).replace(" ","T")}
@@ -79,5 +88,14 @@ async function publish(){
   }
   log("Готово. Перевір статус у Metricool (Планувальник).");
 }
+async function dl(){
+  log("Завантаження "+cur.file+" …");
+  const r=await new Promise(res=>{const id=Math.random().toString(36).slice(2);cbs[id]=res;Native.download(id,(ls("repo")||DEF.repo)+cur.file,cur.file)});
+  if(r.status===200){uriCur=r.body;log("Відео в галереї: Movies/GidraPublisher/"+cur.file)}else log(r.body)}
+function go(pkg,net){
+  if(!uriCur){log("Спочатку натисни «Завантажити відео»");return}
+  const spec=cur.networks[net];const subj=spec.title||cur.title;
+  const res=Native.share(pkg,uriCur,spec.text,subj);
+  log(net+": "+(res==="ok"?"відкрито застосунок, встав опис і опублікуй":res==="chooser"?"застосунок не знайдено, обери вручну":res))}
 loadCfg();loadList();
 </script></body></html>
